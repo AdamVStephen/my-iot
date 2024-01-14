@@ -9,8 +9,64 @@ Adam Stephen.
 
 """-----------------------------------------------------------"""
 
+# Linux Kernel SPI device driver references.
+# Google("linux kernel spi device driver API")
+# 
+# https://www.kernel.org/doc/html/v4.14/driver-api/spi.html
+# 
+# Described as usual (full duplex clocked COPI,CIPO with chip select)
+# chip select normally active low.  Optional interrupt.
+# Linux assumes it will be the controller.
+#
+# One device model is abstracted via a controller represented by a controller struct
+# and SPI devices are linked to this object as children.
+#
+# The altenative models the protocol which allows queues of SPI messages to be
+# created and processed - typically asynchronously though synchronous wrappers
+# can be managed.  Each message is built out of spi_transfer objects which 
+# encompass the full duplex communication exchange.
+#
+# Options depend on chipset implementation (from basic GPIO to complex DMA engines)
+# For performance optimisation there are routes to managing the buffer overhead
+# and kernel/user space split.  Concepts such as kworkers and message pumps
+# locks, queues and suchlike implement these alternatives.
+#
+# For multiple devices sharing comms lines support for an array of chip select
+# lines is provided.  This does permit different devices to use alternative 
+# clock rates and hence there is the possibility to multiplex use of the shared
+# clock and data lines.
+#
+# This suggests we could control the dual DA2 channels using the two exposed 
+# SPI subdevices on the raspberry pi from the linux perspective.  The limitation
+# is that the common chip select on the DA2 breakout board will not permit
+# separation of the two DAC registers.
+#
+#
+#
 # import necessary modules
+#
 # SPI communication
+# https://pypi.org/project/spidev/
+#
+# Options to control CS etc.
+# Output interface includes
+#
+# writebytes(list)
+#
+# writebytes2(list) : for lists of arbitrary sizes : auto chunking
+# if the list exceeds the kernel module buffer size in /sys/module/spidev/parameters/bufsiz
+#
+# writebytes2 also automatically handles numpy byte arrays natively according to 
+# python buffer protocol https://docs.python.org/3/c-api/buffer.html
+#
+# xfer(list, [speed, delay, bits_per_word]) performs "SPI transaction where chip select
+# needs to be released/reactivated betweeen blocks" (but definition of blocks is ambiguous)
+#
+# xfer2(same API as xfer) : requires chip select to be held active between blocks active between blocks
+# xfer3(as xfer2) : as xfer2 but with the buffer chunking facility
+#
+# TODO: investigate the differences and record the digital IO timeseries (can document using
+# the javascript plotting library which is bundled with a tool seen recently for ipynb ??)
 import spidev
 # timing
 import time
@@ -28,11 +84,12 @@ SPI_port = 0
 CS_pin = 1
 spi_clock_speed = int(4e06)   # spi clock frequency in Hz
 spi_clock_speed = int(1e06)   # spi clock frequency in Hz
-spi_clock_speed = int(1e04)   # spi clock frequency in Hz
+#spi_clock_speed = int(1e04)   # spi clock frequency in Hz
 
 # GPIO LDAC pin using GPIO.BOARD (1..40) numbering
 LDAC_pin = 11
 CS_GPIO_PIN = 26
+CS_GPIO_PIN = 11
 
 # DAC bits and range
 dac_bits = 12
@@ -103,14 +160,26 @@ class DA3:
     def close(self):
         self.dac.close()
 
-
 from itertools import chain
+
+def debug_delay(delay = False, duration = 0.1):
+    if delay:
+        time.sleep(duration)
 
 if __name__ == '__main__':
 #    pdb.set_trace()
+    debug = True
+    duration = 1.0
     ldacs = [DA3(use_LDAC = False), DA3(use_LDAC = True)]
     ldacs = [DA3(use_LDAC = False)]
-    ldacs = [ DA3(use_LDAC = False)]
+    #ldacs = [ DA3(use_LDAC = True)]
+
+    # TODO: add a user interface (or more than one)
+    send_vals = False
+    send_dvals = False
+    ramp_up = True
+    ramp_down = False
+    loop = True
     while True:
         for DAC in ldacs:
             DAC.setup()
@@ -125,24 +194,28 @@ if __name__ == '__main__':
                 dvals.append(j)
             while True:
                 print("Setup DAC with use ldac %d" % DAC.use_LDAC)
-                for j in vals:
-                    DAC.output_data(j)
-                for j in dvals:
-                    DAC.output_data(j)
-                for i in range(0,dac_range,dac_step):
-                   print("\tSetting value %d on DA3 with ldac %d" % (i, DAC.use_LDAC))
-                   #DAC.output_data(0)
-                   #time.sleep(0.001)
-                   DAC.output_data(i)
-                   #time.sleep(0.0i01)
-    #               DAC.output_data(0)
-                for i in range(dac_range,0,-1* dac_step):
-                     print("\tSetting value %d on DA3 with ldac %d" % (i, DAC.use_LDAC))
-                     #DAC.output_data(0)
-                     #time.sleep(0.001)
-                     DAC.output_data(i)
-                     #time.sleep(0.1)
-    #                 DAC.output_data(0)
-                time.sleep(0.1)
-                sys.exit(1)
+                if send_vals:
+                    for j in vals:
+                        DAC.output_data(j)
+                if send_dvals:
+                    for j in dvals:
+                        DAC.output_data(j)
+                if ramp_up:
+                    for i in range(0,dac_range,dac_step):
+                       print("\tSetting value %d on DA3 with ldac %d" % (i, DAC.use_LDAC))
+                       #DAC.output_data(0)
+                       #time.sleep(0.001)
+                       DAC.output_data(i)
+                       time.sleep(0.1)
+                       #pdb.set_trace()
+        #               DAC.output_data(0)
+                if ramp_down:
+                    for i in range(dac_range,0,-1* dac_step):
+                         print("\tSetting value %d on DA3 with ldac %d" % (i, DAC.use_LDAC))
+                         #DAC.output_data(0)
+                         #time.sleep(0.001)
+                         DAC.output_data(i)
+                         time.sleep(0.1)
+                         #DAC.output_data(0)
+                if not loop: sys.exit(1)
             DAC.close()
