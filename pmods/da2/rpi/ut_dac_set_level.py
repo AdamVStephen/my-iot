@@ -75,7 +75,6 @@ import RPi.GPIO as GPIO
 # cli
 import sys
 
-
 import pdb
 """-----------------------------------------------------------"""
 
@@ -114,6 +113,7 @@ class DA3:
         self.spi_clock_speed = spi_clock_speed
         self.LDAC_pin = LDAC_pin
         self.use_LDAC = use_LDAC
+        self.setup()
 
     def setup(self):
         self.dac = spidev.SpiDev()
@@ -157,17 +157,6 @@ class DA3:
             GPIO.output(self.LDAC_pin, False)
             GPIO.output(self.LDAC_pin, True)
 
-    def xfer2(self, values):
-        """
-        Output data to the DA3.
-        According to use_LDAC with or without the LDAC line drive.
-        Note that 
-            dac.writebytes does not manage CS line
-            dac.xfer does manage the CS line
-        """
-
-        self.dac.xfer2(values)
-
     def close(self):
         self.dac.close()
 
@@ -178,71 +167,11 @@ def debug_delay(delay = False, duration = 0.1):
         time.sleep(duration)
 
 if __name__ == '__main__':
-#    pdb.set_trace()
     debug = True
     duration = 1.0
-    ldacs = [DA3(use_LDAC = False), DA3(use_LDAC = True)]
-    ldacs = [DA3(use_LDAC = False)]
-    #ldacs = [ DA3(use_LDAC = True)]
-
-    # TODO: add a user interface (or more than one)
-    send_vals = False
-    send_dvals = False
-    ramp_up = False
-    ramp_down = False
-    block_output2 = True
-    loop = True
+    dac = DA3(use_LDAC = False)
     while True:
-        for DAC in ldacs:
-            DAC.setup()
-            vals = []
-            dvals = []
-            smallbuf = []
-            ismall = 0
-            largebuf = []
-            ilarge = 0
-            #for j in chain(range(0,dac_range,dac_step), range(0,dac_range, ), range(dac_range, 0, -1*dac_step)):
-            #for j in range(0,int(0.5*dac_range),dac_step):
-            for j in range(0*dac_range,dac_range,dac_step):
-                vals.append(j)
-                dvals.append(j)
-                # get high byte
-                highbyte = j >> 8
-                 # get low byte
-                lowbyte = j & 0xFF
-                if ismall < 4094:
-                    smallbuf.extend([highbyte, lowbyte])
-                    ismall+=2
-                largebuf.extend([highbyte, lowbyte])
-                ilarge += 2
-            for j in range(0*dac_range,dac_range,dac_step):
-                dvals.append(j)
-            while True:
-                print("Setup DAC with use ldac %d" % DAC.use_LDAC)
-                if block_output2:
-                    DAC.xfer2(smallbuf)
-                if send_vals:
-                    for j in vals:
-                        DAC.output_data(j)
-                if send_dvals:
-                    for j in dvals:
-                        DAC.output_data(j)
-                if ramp_up:
-                    for i in range(0,dac_range,dac_step):
-                       print("\tSetting value %d on DA3 with ldac %d" % (i, DAC.use_LDAC))
-                       #DAC.output_data(0)
-                       #time.sleep(0.001)
-                       DAC.output_data(i)
-                #       time.sleep(0.1)
-                       #pdb.set_trace()
-        #               DAC.output_data(0)
-                if ramp_down:
-                    for i in range(dac_range,0,-1* dac_step):
-                         print("\tSetting value %d on DA3 with ldac %d" % (i, DAC.use_LDAC))
-                         #DAC.output_data(0)
-                         #time.sleep(0.001)
-                         DAC.output_data(i)
-                #         time.sleep(0.1)
-                         #DAC.output_data(0)
-                if not loop: sys.exit(1)
-            DAC.close()
+        print("Level to set in DAC register?")
+        value = int(input())
+        dac.output_data(int(value))
+        print("Value on DAC now %d" % value)

@@ -84,7 +84,7 @@ SPI_port = 0
 CS_pin = 1
 spi_clock_speed = int(4e06)   # spi clock frequency in Hz
 spi_clock_speed = int(1e06)   # spi clock frequency in Hz
-#spi_clock_speed = int(1e04)   # spi clock frequency in Hz
+spi_clock_speed = int(1e04)   # spi clock frequency in Hz
 
 # GPIO LDAC pin using GPIO.BOARD (1..40) numbering
 LDAC_pin = 11
@@ -97,6 +97,7 @@ dac_bits = 16
 dac_bits = 12
 dac_range = (2**dac_bits) -  2
 dac_range = (2**(dac_bits)) -  200
+
 dac_steps = 100
 dac_step = int(dac_range/dac_steps)
 
@@ -158,15 +159,10 @@ class DA3:
             GPIO.output(self.LDAC_pin, True)
 
     def xfer2(self, values):
-        """
-        Output data to the DA3.
-        According to use_LDAC with or without the LDAC line drive.
-        Note that 
-            dac.writebytes does not manage CS line
-            dac.xfer does manage the CS line
-        """
-
         self.dac.xfer2(values)
+
+    def xfer3(self, values):
+        self.dac.xfer3(values)
 
     def close(self):
         self.dac.close()
@@ -203,6 +199,8 @@ if __name__ == '__main__':
             ilarge = 0
             #for j in chain(range(0,dac_range,dac_step), range(0,dac_range, ), range(dac_range, 0, -1*dac_step)):
             #for j in range(0,int(0.5*dac_range),dac_step):
+            dac_range = 4095
+            dac_step = 1
             for j in range(0*dac_range,dac_range,dac_step):
                 vals.append(j)
                 dvals.append(j)
@@ -219,8 +217,13 @@ if __name__ == '__main__':
                 dvals.append(j)
             while True:
                 print("Setup DAC with use ldac %d" % DAC.use_LDAC)
+                #pdb.set_trace()
                 if block_output2:
-                    DAC.xfer2(smallbuf)
+                #    DAC.xfer2(smallbuf)
+                #    time.sleep(0.1)
+                    while True:
+                        DAC.xfer3(largebuf)
+                    sys.exit(0)
                 if send_vals:
                     for j in vals:
                         DAC.output_data(j)
