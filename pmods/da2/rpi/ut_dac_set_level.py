@@ -7,6 +7,8 @@ Two options : explicitly using the LDAC output/not.
 Adam Stephen.
 """
 
+import typer
+
 """-----------------------------------------------------------"""
 
 # Linux Kernel SPI device driver references.
@@ -101,64 +103,96 @@ dac_step = int(dac_range/dac_steps)
 
 """-----------------------------------------------------------"""
 
-class DA3:
+class PmodSpiDev:
     def __init__(self, 
                 SPI_port = SPI_port,
                 CS_pin = CS_pin,
                 spi_clock_speed = spi_clock_speed,
-                LDAC_pin = LDAC_pin,
-                use_LDAC = False):
+                spi_mode = 0b11):
         self.SPI_port = SPI_port
         self.CS_pin = CS_pin
         self.spi_clock_speed = spi_clock_speed
-        self.LDAC_pin = LDAC_pin
-        self.use_LDAC = use_LDAC
+        self.spi_mode = spi_mode
         self.setup()
 
     def setup(self):
-        self.dac = spidev.SpiDev()
-        self.dac.open(SPI_port, CS_pin)
-        self.dac.max_speed_hz = self.spi_clock_speed
-        # SPI mode 0 [CPOL|CPHA]
-        # DA3 self.dac.mode = 0b00
-        # DA2
-        self.dac.mode = 0b11
-        GPIO.setmode(GPIO.BOARD)
-        GPIO.setup(self.LDAC_pin,GPIO.OUT)
-        #GPIO.setup(self.LDAC_pin,GPIO.OUT)
+        self.spi = spidev.SpiDev()
+        self.spi.open(self.SPI_port, self.CS_pin)
+        self.spi.max_speed_hz = self.spi_clock_speed
+        self.spi.mode = self.spi_mode
 
-    def output_data(self, value):
-        """
-        Output data to the DA3.
-        According to use_LDAC with or without the LDAC line drive.
-        Note that 
-            dac.writebytes does not manage CS line
-            dac.xfer does manage the CS line
-        """
+from enum import Enum
 
-        # get high byte
-        highbyte = value >> 8
-        # get low byte
-        lowbyte = value & 0xFF
+class XferMode(Enum):
+    XFER1 = 1
+    XFER2 = 2
+    XFER3 = 3
+
+class WaveformPattern(Enum):
+    LEVELS = 1
+    RAMP = 2
+    SINE = 3
+    TRIANGULAR = 4
+
+
+class DA2:
+    def __init__(self, 
+                SPI_port = SPI_port,
+                CS_pin = CS_pin,
+                spi_clock_speed = spi_clock_speed,
+                spi_mode = 0b11):
+        self.pmod = PmodSpiDev(SPI_port, CS_pin, spi_clock_speed,spi_mode)
+        self.spi = self.pmod.spi
+
+    def prepare_buffer(self, values):
+        """TODO: potentially make more efficient."""
+        self.buffer = []
+        for v in values:
+            highbyte = v >> 8
+            lowbyte = v & 0xFF
+            self.buffer.extend([highbyte, lowbyte])
         
-#        pdb.set_trace()
+    def loop(self, iterations = 0, type = None, mode = XferMode.XFER1):
+        """iterations 0 = forever. Rudimentary caching of levels/ramp/sinusoids""" 
+        if type is not None:
+            if type == WaveformPattern.LEVELS: self.set_levels(self.levels)
+            if type == WaveformPattern.RAMP: self.set_ramp(ramp = self.ramp)
+            # TODO: implement SINE/TRIANGULAR
+        i = 0
+        while (i < iterations) and (iterations > 0):
+            if mode == XferMode.XFER1: self.xfer()
+            if mode == XferMode.XFER2: self.xfer2()
+            if mode == XferMode.XFER3: self.xfer3()
+            i+=1
 
-        if self.use_LDAC:
-            GPIO.output(self.LDAC_pin,True)
+    def set_levels(self, levels):
+        self.levels = levels
+        self.prepare_buffer(levels)
+    
+    def set_ramp(self, start = 0, end = 4096, delta = 1, ramp = None):
+        if ramp is not None:
+            self.ramp = ramp
         else:
-            GPIO.output(self.LDAC_pin, False)
+            self.ramp = list(range(int(start), int(end), int(delta)))
+        self.prepare_buffer(self.ramp)
 
+    def xfer(self, values = None):
+        if values is not None:
+            self.prepare_buffer(values)
+        self.spi.xfer(self.buffer)
 
-        # send both bytes
-        #self.dac.writebytes([highbyte, lowbyte])
-        self.dac.xfer([highbyte, lowbyte])
-
-        if self.use_LDAC:
-            GPIO.output(self.LDAC_pin, False)
-            GPIO.output(self.LDAC_pin, True)
+    def xfer2(self, values = None):
+        if values is not None:
+            self.prepare_buffer(values)
+        self.spi.xfer2(self.buffer)
+    
+    def xfer3(self, values):
+        if values is not None:
+            self.prepare_buffer(values)
+        self.spi.xfer3(self.buffer)
 
     def close(self):
-        self.dac.close()
+        self.spi.close()
 
 from itertools import chain
 
@@ -166,12 +200,34 @@ def debug_delay(delay = False, duration = 0.1):
     if delay:
         time.sleep(duration)
 
+
+def test_suite_a(delta_t = 0.1):
+    dac = DA2()
+    for value in [2**i for i in range(0,12)]:
+        print("Set level output to %d" % value)
+        dac.set_levels([0,4095])
+        dac.loop(iterations = 0, type = None, mode = XferMode.XFER1)
+        time.sleep(delta_t)
+
+# typer CLI support for development
+
+app = typer.Typer()
+
+@app.command()
+def levels(maxbits: int = 12, iterations: int = 1, loop_delay: float = 0.1, value_delay: float = 1.0):
+    dac = DA2()
+    for i in range(0, iterations):
+        for value in [2**i for i in range(0, maxbits)]:
+            print("Set level output to %d" % value)
+            dac.set_levels([value - 1])
+            dac.loop(iterations, type = WaveformPattern.LEVELS, mode = XferMode.XFER1)
+            time.sleep(value_delay)
+        time.sleep(loop_delay)
+
+
+
 if __name__ == '__main__':
-    debug = True
-    duration = 1.0
-    dac = DA3(use_LDAC = False)
-    while True:
-        print("Level to set in DAC register?")
-        value = int(input())
-        dac.output_data(int(value))
-        print("Value on DAC now %d" % value)
+    #debug = True
+    #duration = 1.0
+    #test_suite_a()
+    app()
